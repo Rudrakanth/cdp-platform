@@ -15,7 +15,7 @@ Python, open source, no licence cost. It runs on **DuckDB** or **ClickHouse** be
 ```bash
 pip install -r requirements.txt
 python -m cdp.cli --data-dir ./data demo --profiles 20000      # sample org: 5 BUs, 59 KPIs
-CDP_DATA_DIR=./data uvicorn --factory cdp.api:create_app --port 8000
+CDP_DATA_DIR=./data python -m uvicorn --factory cdp.api:create_app --port 8000
 # open http://localhost:8000   (UI)    /docs   (API)
 ```
 
