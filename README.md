@@ -8,8 +8,6 @@ Python, open source, no licence cost. It runs on **DuckDB** or **ClickHouse** be
 - 500k profiles × 259 KPIs (111M values): 16-condition query in **88 ms cold / 2 ms cached** (DuckDB)
 - Retire 200 KPIs in **3 ms**, physically purge in 0.3 s
 
-![System architecture](docs/img/01-architecture.png)
-
 ---
 
 ## 1. Quick start
