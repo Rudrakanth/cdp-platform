@@ -31,7 +31,7 @@ CDP_DATA_DIR=./data python -m uvicorn --factory cdp.api:create_app --port 8000
 
 **UI** (single file, no build step): *Audience builder* (nested AND/OR/NOT groups, an operator and value
 editor per datatype, live count after every change, funnel showing how many each filter removes, sample
-members, profile inspector, save/load segments with ok/stale/broken badges) and *Data & KPIs* (upload new
+members, profile inspector, **type-ahead value suggestions** (type `new` and pick from matching cities; works for string and list KPIs, multi-select chips for `in` / `contains any`), save/load segments with ok/stale/broken badges) and *Data & KPIs* (upload new
 data, KPI table, retire a KPI or a whole model, purge, refresh stale segments, freshness list).
 
 ---
@@ -256,6 +256,7 @@ Sample organisation: a group with 5 BUs (Retail, Fashion, Grocery, Finance, Trav
 
 ## 11. API
 
+`GET /api/kpis/{name}/values?q=` (type-ahead for string/list KPIs: matches case-insensitively, prefix matches first, with counts; cached per KPI generation) ·
 `GET /api/health | meta | kpis | stats | admin/freshness | profile/{id}` ·
 `POST /api/count | members` ·
 `/api/segments` (CRUD) `+ /{id}/refresh`, `/refresh-stale` ·

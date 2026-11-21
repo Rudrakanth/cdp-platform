@@ -61,6 +61,7 @@ class DuckDialect(Dialect):
     def ends_ci(self, col, s): return f"ends_with(lower({col}), lower({self.str(s)}))"
     def regex(self, col, s): return f"regexp_matches({col}, {self.str(s)})"
 
+    def unnest(self, col): return f"unnest({col})"
     def list_has(self, col, s): return f"list_contains({col}, {self.str(s)})"
     def list_any(self, col, xs): return f"list_has_any({col}, [{', '.join(self.str(x) for x in xs)}])"
     def list_all(self, col, xs): return f"list_has_all({col}, [{', '.join(self.str(x) for x in xs)}])"
@@ -93,6 +94,7 @@ class ClickHouseDialect(Dialect):
     def ends_ci(self, col, s): return f"endsWith(lowerUTF8({col}), lowerUTF8({self.str(s)}))"
     def regex(self, col, s): return f"match({col}, {self.str(s)})"
 
+    def unnest(self, col): return f"arrayJoin({col})"
     def list_has(self, col, s): return f"has({col}, {self.str(s)})"
     def list_any(self, col, xs): return f"hasAny({col}, [{', '.join(self.str(x) for x in xs)}])"
     def list_all(self, col, xs): return f"hasAll({col}, [{', '.join(self.str(x) for x in xs)}])"

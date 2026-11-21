@@ -12,6 +12,7 @@ import os
 import tempfile
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -37,6 +38,8 @@ class CDPService:
         self.engine.init_schema()
         self.reg = registry or Registry(os.path.join(self.s.data_dir, "registry.sqlite"))
         self.ingestor = Ingestor(self.engine, self.reg, self.s.gc_grace_s)
+        self._sugg: OrderedDict = OrderedDict()                 # value-suggestion cache (version-stamped keys)
+        self._sugg_lock = threading.Lock()
         self._write_lock = threading.Lock()                     # one ingest/purge at a time
         self._flight: dict[str, threading.Lock] = {}
         self._flight_guard = threading.Lock()
@@ -247,6 +250,48 @@ class CDPService:
             self.engine.purge(by_type)
             self.reg.mark_purged([k["kpi_id"] for k in todo])
         return {"purged_kpis": len(todo)}
+
+    SUGGEST_MAX = 50
+
+    def suggest_values(self, kpi: str, q: str = "", *, limit: int = 20, bu: Optional[str] = None) -> dict:
+        """Type-ahead for string / list KPIs: distinct values matching `q` (case-insensitive, prefix matches
+        first, then by frequency). Cached per (kpi, generation, q), so a refresh invalidates it automatically."""
+        from .types import TABLE_FOR
+        if not (0 < limit <= self.SUGGEST_MAX):
+            raise ValidationError(f"limit must be 1..{self.SUGGEST_MAX}")
+        q = (q or "").strip()[:100]
+        k = self.reg.get_kpis([kpi]).get(kpi)
+        if not k:
+            raise NotFound(f"unknown or retired KPI '{kpi}'")
+        if bu and k["bu"] not in {bu.upper(), "ALL"}:
+            raise ValidationError(f"KPI '{kpi}' belongs to {k['bu']} and is not visible here")
+        if k["type"] not in ("string", "list"):
+            raise ValidationError("value suggestions exist only for string and list KPIs")
+        if not k["active_gen"]:
+            raise ValidationError(f"KPI '{kpi}' has no data loaded yet")
+        key = (k["kpi_id"], k["version"], k["active_gen"], q.lower(), limit)
+        with self._sugg_lock:
+            if key in self._sugg:
+                self._sugg.move_to_end(key)
+                return self._sugg[key] | {"cached": True}
+        d = self.engine.dialect
+        t = d.tbl(TABLE_FOR[k["type"]])
+        where = f"kpi_id = {int(k['kpi_id'])} AND gen = {int(k['active_gen'])}"
+        inner = (f"SELECT v AS e FROM {t} WHERE {where}" if k["type"] == "string"
+                 else f"SELECT {d.unnest('v')} AS e FROM {t} WHERE {where}")
+        cond, order = "e IS NOT NULL AND e <> ''", "c DESC, e"
+        if q:
+            cond += f" AND {d.contains_ci('e', q)}"
+            order = f"CASE WHEN {d.starts_ci('e', q)} THEN 0 ELSE 1 END, {order}"
+        rows = self.engine.query(f"SELECT e, count(*) AS c FROM ({inner}) AS s WHERE {cond} GROUP BY e "
+                                 f"ORDER BY {order} LIMIT {int(limit) + 1}")
+        out = {"kpi": kpi, "q": q, "values": [{"value": str(r[0]), "count": int(r[1])} for r in rows[:limit]],
+               "truncated": len(rows) > limit, "cached": False}
+        with self._sugg_lock:
+            self._sugg[key] = out
+            while len(self._sugg) > 2000:
+                self._sugg.popitem(last=False)
+        return out
 
     def list_kpis(self, bu: Optional[str] = None, **kw) -> list[dict]:
         return [k | {"loaded": bool(k["active_gen"])} for k in self.reg.list_kpis(bu=bu, **kw)]

@@ -153,3 +153,13 @@ def test_family_analytics_nested(org, core_rows):
                NOT(L("marital_status", "eq", "single")),
                L("family_spend_share", "gt", 0.3))
     assert org.count(rule, now=NOW)["count"] == oracle.count(core_rows, rule, NOW)
+
+
+# ---------------------------------------------------------------- 9. suggestions follow refreshed data
+def test_value_suggestions_see_new_data_after_refresh(org, tmp_path, core_rows):
+    assert org.suggest_values("home_city", "zzz")["values"] == []            # cached as "no matches"
+    ids = [r["customer_id"] for r in core_rows]
+    p = write_parquet(tmp_path / "city.parquet", customer_id=ids, home_city=["Zzzville"] * len(ids))
+    org.ingest(p, model="core", mode="upsert", only=["home_city"])
+    r = org.suggest_values("home_city", "zzz")
+    assert [v["value"] for v in r["values"]] == ["Zzzville"] and r["values"][0]["count"] == len(ids)

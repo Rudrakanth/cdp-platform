@@ -103,6 +103,11 @@ def create_app(service: Optional[CDPService] = None, settings: Optional[Settings
             out = [k for k in out if ql in k["name"] or ql in (k["description"] or "").lower()]
         return out
 
+    @app.get("/api/kpis/{name}/values")
+    def kpi_values(name: str, q: str = "", limit: int = 20, bu: Optional[str] = None):
+        """Type-ahead suggestions for string / list KPIs."""
+        return svc.suggest_values(name, q, limit=limit, bu=bu)
+
     # ------------------------------------------------------------ querying
     @app.post("/api/count")
     def count(r: CountReq):

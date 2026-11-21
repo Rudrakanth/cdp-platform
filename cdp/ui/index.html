@@ -34,6 +34,12 @@ button.danger{color:var(--bad)}button:disabled{opacity:.5;cursor:default}
 .tag.ok{background:#e4f5ec;color:var(--ok)}.tag.warn{background:#fff1d9;color:var(--warn)}.tag.bad{background:#fde7e4;color:var(--bad)}
 #count{font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1}
 #bar{height:8px;background:var(--line);border-radius:5px;margin:8px 0;overflow:hidden}#bar>div{height:100%;background:var(--acc);width:0;transition:width .25s}
+.ta{position:relative;display:inline-block}
+.sugg{position:absolute;left:0;top:100%;z-index:30;min-width:240px;max-height:260px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.14);margin-top:2px}
+.si{display:flex;justify-content:space-between;gap:14px;padding:6px 10px;cursor:pointer}.si.on,.si:hover{background:var(--acc2)}.si small{color:var(--mute)}
+.chips{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:2px 4px;background:#fff;min-width:220px}
+.chip{background:var(--acc2);color:var(--acc);border-radius:99px;padding:1px 4px 1px 9px;font-size:12px;white-space:nowrap}.chip b{cursor:pointer;margin-left:4px;padding:0 4px}
+.chipin{border:0!important;outline:0;min-width:130px;flex:1;padding:3px}
 .mute{color:var(--mute)}.small{font-size:12px}.err{color:var(--bad)}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:top}
 .ids button{margin:2px 3px 0 0;font-size:12px}
@@ -153,11 +159,48 @@ function conv(type,op,raw){ // text -> typed value
 function inp(type,val,on,ph,cls){
   const e=h('input',{type,placeholder:ph||'',class:cls||'',value:val??''});
   e.oninput=()=>{on(type==='number'?(e.value===''?null:Number(e.value)):e.value);schedule()};return e}
+/* ---------- value suggestions (type-ahead for string / list KPIs) ---------- */
+const SUGGEST_OPS=new Set(['eq','ne','in','not_in','contains','not_contains','starts_with','ends_with','contains_any','contains_all','first_is']);
+function canSuggest(k,op){return(k.type==='string'||k.type==='list')&&SUGGEST_OPS.has(op)}
+function typeahead(kpi,input,onPick){
+  const dd=h('div',{class:'sugg',style:'display:none'});let items=[],act=-1,seq=0,timer=null,ac=null;
+  const close=()=>{dd.style.display='none';act=-1};
+  const pick=v=>{close();onPick(v)};
+  const paint=()=>{dd.replaceChildren(...(items.length?items.map((it,i)=>h('div',{class:'si'+(i===act?' on':''),onmousedown:e=>{e.preventDefault();pick(it.value)}},h('span',{},it.value),h('small',{},it.count.toLocaleString()))):[h('div',{class:'si mute'},'no matches')]));dd.style.display='block'};
+  const load=async()=>{const my=++seq;if(ac)ac.abort();ac=new AbortController();
+    try{const r=await api('/api/kpis/'+encodeURIComponent(kpi)+'/values?limit=12&q='+encodeURIComponent(input.value.trim())+(S.bu?'&bu='+S.bu:''),{signal:ac.signal});
+      if(my!==seq)return;items=r.values;act=-1;paint()}catch(e){if(e.name!=='AbortError')close()}};
+  input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(load,150)});
+  input.addEventListener('focus',load);
+  input.addEventListener('blur',()=>setTimeout(close,150));
+  input.addEventListener('keydown',e=>{if(dd.style.display==='none')return;
+    if(e.key==='ArrowDown'){e.preventDefault();act=Math.min(act+1,items.length-1);paint()}
+    else if(e.key==='ArrowUp'){e.preventDefault();act=Math.max(act-1,0);paint()}
+    else if(e.key==='Enter'&&act>=0&&items[act]){e.preventDefault();pick(items[act].value)}
+    else if(e.key==='Escape')close()});
+  return dd}
+function suggestScalar(n,k,v){const wrap=h('span',{class:'ta'});const e=h('input',{class:'w',placeholder:'type to search…',value:v??'',style:'width:190px'});
+  e.addEventListener('input',()=>{n.value=e.value===''?null:e.value;schedule()});
+  wrap.append(e,typeahead(n.kpi,e,val=>{e.value=val;n.value=val;schedule()}));return wrap}
+function suggestMulti(n,k){const wrap=h('span',{class:'ta chips'});if(!Array.isArray(n.value))n.value=[];const list=n.value;
+  const e=h('input',{class:'chipin'});
+  const draw=()=>{wrap.querySelectorAll('.chip').forEach(c=>c.remove());
+    list.forEach((x,i)=>wrap.insertBefore(h('span',{class:'chip'},x,h('b',{title:'remove',onclick:()=>{list.splice(i,1);draw();schedule()}},'×')),e));
+    e.placeholder=list.length?'add more…':'type to search…'};
+  const add=val=>{val=String(val).trim();if(val&&!list.includes(val)){list.push(val);draw();schedule()}e.value=''};
+  const dd=typeahead(n.kpi,e,val=>{add(val);e.focus()});
+  e.addEventListener('keydown',ev=>{if(ev.defaultPrevented)return;
+    if(ev.key==='Enter'||ev.key===','){ev.preventDefault();e.value.split(',').forEach(add)}
+    else if(ev.key==='Backspace'&&!e.value&&list.length){list.pop();draw();schedule()}});
+  e.addEventListener('blur',()=>{if(e.value.trim())e.value.split(',').forEach(add)});
+  wrap.append(e,dd);draw();return wrap}
 function valueEditor(n,k){
   const op=n.operator,sh=shapeOf(op),t=k.type;let v=n.value;const box=h('span',{class:'row',style:'margin:0'});
   const numeric=(t==='number'||op.startsWith('size_'));
   const itype=numeric?'number':(t==='datetime'?(op==='on_date'?'date':'datetime-local'):'text');
-  if(sh==='scalar')box.append(inp(itype,v,x=>n.value=x,op==='regex'?'regex':'value','w'));
+  if(sh==='scalar'&&canSuggest(k,op))box.append(suggestScalar(n,k,v));
+  else if(sh==='multi'&&canSuggest(k,op))box.append(suggestMulti(n,k));
+  else if(sh==='scalar')box.append(inp(itype,v,x=>n.value=x,op==='regex'?'regex':'value','w'));
   else if(sh==='range'){box.append(inp(itype,v[0],x=>n.value[0]=x,'from'),'–',inp(itype,v[1],x=>n.value[1]=x,'to'))}
   else if(sh==='multi'){const e=h('input',{class:'w',placeholder:'comma,separated',value:(v||[]).join(', ')});
     e.oninput=()=>{n.value=e.value.split(',').map(s=>s.trim()).filter(Boolean).map(s=>t==='number'?Number(s):s).filter(x=>!(typeof x==='number'&&isNaN(x)));schedule()};box.append(e)}
