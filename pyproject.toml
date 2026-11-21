@@ -1,0 +1,21 @@
+[project]
+name = "cdp-platform"
+version = "1.0.0"
+description = "Self-managed, engine-agnostic CDP audience platform (DuckDB + ClickHouse)"
+requires-python = ">=3.10"
+dependencies = [
+  "duckdb>=1.1",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "pydantic>=2",
+  "pyarrow>=15",
+]
+
+[project.optional-dependencies]
+clickhouse = ["chdb>=3", "clickhouse-connect>=0.8"]
+dev = ["pytest>=8", "httpx>=0.27", "chdb>=3", "clickhouse-connect>=0.8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["slow: larger scale tests (deselect with -m 'not slow')"]

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CDP Audience Builder</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b2430;--mute:#6b7685;--line:#e3e7ec;--acc:#2457d6;--acc2:#e8eefc;--ok:#1a7f4b;--warn:#b26a00;--bad:#c0392b}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;gap:16px;align-items:center;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:16px;margin:0}header .sp{flex:1}
+nav button{border:0;background:none;padding:8px 12px;font:inherit;cursor:pointer;border-bottom:2px solid transparent;color:var(--mute)}
+nav button.on{color:var(--acc);border-color:var(--acc);font-weight:600}
+select,input,button,textarea{font:inherit}
+input,select,textarea{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:#fff;min-width:0}
+button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer}
+button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}button.sm{padding:2px 8px;font-size:12px}
+button.danger{color:var(--bad)}button:disabled{opacity:.5;cursor:default}
+.wrap{display:grid;grid-template-columns:260px minmax(420px,1fr) 380px;gap:14px;padding:14px;align-items:start}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 8px}
+#catalog{max-height:78vh;overflow:auto}#catalog details{margin-bottom:4px}#catalog summary{cursor:pointer;font-weight:600;padding:3px 0}
+.kpi{display:flex;justify-content:space-between;gap:6px;padding:3px 6px;border-radius:5px;cursor:pointer;font-size:13px}
+.kpi:hover{background:var(--acc2)}.kpi small{color:var(--mute)}
+.group{border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:8px;padding:8px;margin:6px 0;background:#fcfdff}
+.group.or{border-left-color:#d97b00}.group.not{background:#fff6f5}
+.ghead{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.op{font-weight:700;min-width:44px}
+.leaf{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:5px;border-radius:6px;margin:3px 0;background:#fff;border:1px solid var(--line)}
+.leaf.bad{border-color:#f0c36d;background:#fffaf0}.leaf.not{background:#fff6f5}
+.leaf .kname{width:200px}.leaf input[type=number]{width:90px}.leaf input.w{width:150px}
+.tag{font-size:11px;padding:1px 6px;border-radius:99px;background:var(--acc2);color:var(--acc)}
+.tag.ok{background:#e4f5ec;color:var(--ok)}.tag.warn{background:#fff1d9;color:var(--warn)}.tag.bad{background:#fde7e4;color:var(--bad)}
+#count{font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1}
+#bar{height:8px;background:var(--line);border-radius:5px;margin:8px 0;overflow:hidden}#bar>div{height:100%;background:var(--acc);width:0;transition:width .25s}
+.mute{color:var(--mute)}.small{font-size:12px}.err{color:var(--bad)}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:top}
+.ids button{margin:2px 3px 0 0;font-size:12px}
+dialog{border:1px solid var(--line);border-radius:10px;max-width:640px;width:92vw}
+.busy #count{opacity:.45}
+.page{display:none;padding:14px}.page.on{display:block}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>CDP Audience Builder</h1>
+  <nav><button id="t-build" class="on">Audience</button><button id="t-data">Data &amp; KPIs</button></nav>
+  <span class="sp"></span>
+  <label class="small mute">Business unit
+    <select id="bu"><option value="">Group (all BUs)</option></select></label>
+  <span id="engine" class="tag"></span>
+</header>
+
+<div id="p-build" class="page on" style="padding:0">
+<div class="wrap">
+  <div class="card"><h2>KPI catalog</h2>
+    <input id="q" placeholder="search KPIs…" style="width:100%;margin-bottom:6px">
+    <div id="catalog"></div></div>
+
+  <div>
+    <div class="card"><h2>Filters <span class="mute" style="text-transform:none;letter-spacing:0">— the count updates as you type</span></h2>
+      <div id="builder"></div>
+      <div class="row"><button id="clear">Clear all</button>
+        <label class="small"><input type="checkbox" id="explain" checked> show funnel</label></div></div>
+    <div class="card" style="margin-top:12px"><h2>Funnel (cumulative audience after each condition)</h2>
+      <div id="funnel" class="small mute">add two or more conditions</div></div>
+  </div>
+
+  <div>
+    <div class="card" id="result"><h2>Audience size</h2>
+      <div id="count">–</div>
+      <div id="bar"><div></div></div>
+      <div id="meta" class="small mute"></div>
+      <div id="warn" class="small" style="color:var(--warn);margin-top:4px"></div>
+      <div id="error" class="small err"></div></div>
+    <div class="card" style="margin-top:12px"><h2>Sample members <span class="mute" style="text-transform:none;letter-spacing:0">(click to inspect profile)</span></h2>
+      <div id="ids" class="ids small mute">–</div></div>
+    <div class="card" style="margin-top:12px"><h2>Save these filters</h2>
+      <div class="row"><input id="segname" placeholder="segment name" style="flex:1"><button class="pri" id="save">Save</button></div>
+      <div id="savemsg" class="small mute"></div></div>
+    <div class="card" style="margin-top:12px"><h2>Saved segments</h2><div id="segs" class="small"></div></div>
+  </div>
+</div>
+</div>
+
+<div id="p-data" class="page">
+  <div class="card"><h2>Load data</h2>
+    <div class="row"><button id="demo" class="pri">Load demo data (5 BUs)</button>
+      <label class="small">profiles <input id="demoN" type="number" value="20000" style="width:100px"></label>
+      <label class="small">extra ML KPIs <input id="demoML" type="number" value="0" style="width:80px"></label>
+      <span id="demomsg" class="small mute"></span></div>
+    <div class="row"><b>Ingest a file</b> <span class="mute small">wide file: one <code>customer_id</code> column + one column per KPI (.parquet .csv .jsonl)</span></div>
+    <div class="row"><input type="file" id="file">
+      <input id="model" placeholder="model / source name (required)" style="width:220px">
+      <select id="mode"><option value="replace">replace (full refresh, atomic)</option><option value="upsert">upsert (delta)</option></select>
+      <input id="ibu" placeholder="BU (ALL)" style="width:90px"><input id="icat" placeholder="category" style="width:110px">
+      <button id="ingest">Ingest</button></div>
+    <div id="ingmsg" class="small"></div></div>
+  <div class="card" style="margin-top:12px"><h2>KPIs <span id="kpicount" class="mute"></span></h2>
+    <div class="row"><input id="kq" placeholder="filter by name/model…"><button id="purge" class="sm">Purge retired data</button>
+      <button id="refreshall" class="sm">Refresh stale segments</button><span id="admmsg" class="small mute"></span></div>
+    <div id="kpitable" style="max-height:55vh;overflow:auto"></div></div>
+  <div class="card" style="margin-top:12px"><h2>Freshness (KPIs older than their SLA)</h2><div id="fresh" class="small"></div></div>
+</div>
+
+<dialog id="dlg"><div class="row"><b id="dlgt"></b><span style="flex:1"></span><button onclick="dlg.close()">Close</button></div><div id="dlgb" style="max-height:60vh;overflow:auto"></div></dialog>
+
+<script>
+const $=s=>document.querySelector(s);
+const h=(tag,attrs={},...kids)=>{const e=document.createElement(tag);for(const[k,v]of Object.entries(attrs)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else if(v!==false&&v!==null&&v!==undefined)e.setAttribute(k,v===true?'':v)}for(const c of kids.flat())e.append(c instanceof Node?c:document.createTextNode(c??''));return e};
+const fmt=n=>n==null?'–':Number(n).toLocaleString();
+
+const S={meta:null,kpis:[],by:{},bu:'',root:{type:'group',op:'AND',not:false,children:[]},seq:0,ctrl:null,timer:null,editing:null};
+const CITIES={'Abu Dhabi':[24.4539,54.3773],'Dubai':[25.2048,55.2708],'Sharjah':[25.3463,55.4209],'Al Ain':[24.2075,55.7447],'Riyadh':[24.7136,46.6753],'Doha':[25.2854,51.5310],'Muscat':[23.588,58.3829]};
+
+async function api(path,o={}){
+  const headers={...(o.headers||{})};const key=localStorage.getItem('cdp_key');if(key)headers['X-API-Key']=key;
+  let body=o.body;if(body&&!(body instanceof Blob)&&typeof body==='object'){body=JSON.stringify(body);headers['Content-Type']='application/json'}
+  const r=await fetch(path,{method:o.method||'GET',headers,body,signal:o.signal});
+  if(r.status===401){const k=prompt('API key (X-API-Key)');if(k){localStorage.setItem('cdp_key',k);return api(path,o)}}
+  const t=await r.text();let j;try{j=JSON.parse(t)}catch{j={detail:t}}
+  if(!r.ok)throw new Error(j.detail?(typeof j.detail==='string'?j.detail:JSON.stringify(j.detail)):r.statusText);
+  return j}
+
+/* ---------- value shapes ---------- */
+const shapeOf=op=>S.meta.shapes[op]||'none';
+function defVal(shape){return({none:null,scalar:null,range:[null,null],multi:[],relative:{n:30,unit:'day'},radius:{lat:null,lon:null,km:10},bbox:{min_lat:null,min_lon:null,max_lat:null,max_lon:null},json:{path:'',value:null}})[shape]}
+const blank=v=>v===null||v===undefined||v===''||(typeof v==='number'&&isNaN(v));
+function complete(shape,v){
+  switch(shape){case'none':return true;case'scalar':return!blank(v);case'range':return!blank(v[0])&&!blank(v[1]);case'multi':return v.length>0;
+  case'relative':return!blank(v.n)&&v.n>0;case'radius':return!blank(v.lat)&&!blank(v.lon)&&!blank(v.km)&&v.km>0;
+  case'bbox':return Object.values(v).every(x=>!blank(x));case'json':return v.path&&!blank(v.value)}return false}
+
+/* ---------- tree <-> rule ---------- */
+function leafRule(n){if(!n.kpi||!n.operator||!S.by[n.kpi])return null;const sh=shapeOf(n.operator);if(!complete(sh,n.value))return null;
+  const r={kpi:n.kpi,operator:n.operator};if(sh!=='none')r.value=n.value;return r}
+function ser(n){let r;
+  if(n.type==='leaf')r=leafRule(n);else{const ch=n.children.map(ser).filter(Boolean);r=ch.length?{op:n.op,children:ch}:null}
+  return r&&n.not?{op:'NOT',child:r}:r}
+function des(n){
+  if(n.kpi)return{type:'leaf',kpi:n.kpi,operator:n.operator,value:n.value??defVal(shapeOf(n.operator)),not:false};
+  if(String(n.op).toUpperCase()==='NOT'){const c=des(n.child||n.children[0]);c.not=!c.not;return c}
+  return{type:'group',op:String(n.op||'AND').toUpperCase(),not:false,children:(n.children||[]).map(des)}}
+const countLeaves=n=>n.type==='leaf'?1:n.children.reduce((a,c)=>a+countLeaves(c),0);
+
+/* ---------- builder ---------- */
+function conv(type,op,raw){ // text -> typed value
+  if(raw==='')return null;
+  if(['number'].includes(type)||op.startsWith('size_'))return Number(raw);
+  return raw}
+function inp(type,val,on,ph,cls){
+  const e=h('input',{type,placeholder:ph||'',class:cls||'',value:val??''});
+  e.oninput=()=>{on(type==='number'?(e.value===''?null:Number(e.value)):e.value);schedule()};return e}
+function valueEditor(n,k){
+  const op=n.operator,sh=shapeOf(op),t=k.type;let v=n.value;const box=h('span',{class:'row',style:'margin:0'});
+  const numeric=(t==='number'||op.startsWith('size_'));
+  const itype=numeric?'number':(t==='datetime'?(op==='on_date'?'date':'datetime-local'):'text');
+  if(sh==='scalar')box.append(inp(itype,v,x=>n.value=x,op==='regex'?'regex':'value','w'));
+  else if(sh==='range'){box.append(inp(itype,v[0],x=>n.value[0]=x,'from'),'–',inp(itype,v[1],x=>n.value[1]=x,'to'))}
+  else if(sh==='multi'){const e=h('input',{class:'w',placeholder:'comma,separated',value:(v||[]).join(', ')});
+    e.oninput=()=>{n.value=e.value.split(',').map(s=>s.trim()).filter(Boolean).map(s=>t==='number'?Number(s):s).filter(x=>!(typeof x==='number'&&isNaN(x)));schedule()};box.append(e)}
+  else if(sh==='relative'){box.append('last',inp('number',v.n,x=>n.value.n=x,'n'));
+    const s=h('select',{},...['minute','hour','day','week'].map(u=>h('option',{value:u,selected:u===v.unit},u)));s.onchange=()=>{n.value.unit=s.value;schedule()};box.append(s)}
+  else if(sh==='radius'){
+    const lat=inp('number',v.lat,x=>n.value.lat=x,'lat'),lon=inp('number',v.lon,x=>n.value.lon=x,'lon'),km=inp('number',v.km,x=>n.value.km=x,'km');
+    const p=h('select',{},h('option',{value:''},'city…'),...Object.keys(CITIES).map(c=>h('option',{value:c},c)));
+    p.onchange=()=>{if(!p.value)return;[n.value.lat,n.value.lon]=CITIES[p.value];lat.value=n.value.lat;lon.value=n.value.lon;schedule()};
+    box.append(p,lat,lon,km,'km')}
+  else if(sh==='bbox'){for(const f of['min_lat','min_lon','max_lat','max_lon'])box.append(inp('number',v[f],x=>n.value[f]=x,f))}
+  else if(sh==='json'){box.append(inp('text',v.path,x=>n.value.path=x,'path e.g. drivers.price','w'),
+    (()=>{const e=h('input',{placeholder:'value',value:v.value??'',style:'width:90px'});e.oninput=()=>{const r=e.value;n.value.value=r===''?null:(isNaN(Number(r))?r:Number(r));schedule()};return e})())}
+  return box}
+function leafEl(n,parent){
+  const k=S.by[n.kpi],rule=leafRule(n);
+  const el=h('div',{class:'leaf'+(rule?'':' bad')+(n.not?' not':'')});
+  const nb=h('input',{type:'checkbox',checked:n.not,title:'NOT'});nb.onchange=()=>{n.not=nb.checked;render();schedule()};
+  const name=h('input',{class:'kname',list:'kpilist',placeholder:'pick a KPI',value:n.kpi||''});
+  name.onchange=()=>{if(S.by[name.value]){n.kpi=name.value;n.operator=S.meta.operators[S.by[n.kpi].type][0];n.value=defVal(shapeOf(n.operator))}else n.kpi='';render();schedule()};
+  el.append(h('label',{class:'small',title:'NOT'},nb,'NOT'),name);
+  if(k){const ops=S.meta.operators[k.type];const sel=h('select',{},...ops.map(o=>h('option',{value:o,selected:o===n.operator},o.replace(/_/g,' '))));
+    sel.onchange=()=>{n.operator=sel.value;n.value=defVal(shapeOf(n.operator));render();schedule()};
+    el.append(h('span',{class:'tag'},k.type),sel,valueEditor(n,k))}
+  el.append(h('button',{class:'sm danger',onclick:()=>{parent.children.splice(parent.children.indexOf(n),1);render();schedule()}},'✕'));
+  return el}
+function groupEl(n,parent){
+  const el=h('div',{class:'group'+(n.op==='OR'?' or':'')+(n.not?' not':'')});
+  const head=h('div',{class:'ghead'});
+  const tog=h('button',{class:'op',onclick:()=>{n.op=n.op==='AND'?'OR':'AND';render();schedule()},title:'click to switch AND/OR'},'match '+(n.op==='AND'?'ALL':'ANY'));
+  const nb=h('input',{type:'checkbox',checked:n.not});nb.onchange=()=>{n.not=nb.checked;render();schedule()};
+  head.append(tog,h('label',{class:'small'},nb,'NOT'),
+    h('button',{class:'sm',onclick:()=>{n.children.push({type:'leaf',kpi:'',operator:'',value:null,not:false});render()}},'+ condition'),
+    h('button',{class:'sm',onclick:()=>{n.children.push({type:'group',op:'OR',not:false,children:[]});render()}},'+ group'));
+  if(parent)head.append(h('button',{class:'sm danger',onclick:()=>{parent.children.splice(parent.children.indexOf(n),1);render();schedule()}},'remove group'));
+  el.append(head);for(const c of n.children)el.append(c.type==='leaf'?leafEl(c,n):groupEl(c,n));return el}
+function render(){const b=$('#builder');b.replaceChildren(groupEl(S.root,null))}
+
+/* ---------- live count ---------- */
+function schedule(){clearTimeout(S.timer);S.timer=setTimeout(runCount,250);$('#result').classList.add('busy')}
+async function runCount(){
+  const rule=ser(S.root)||{};const my=++S.seq;S.ctrl?.abort();S.ctrl=new AbortController();
+  try{
+    const r=await api('/api/count',{method:'POST',body:{rule,bu:S.bu||null,explain:$('#explain').checked},signal:S.ctrl.signal});
+    if(my!==S.seq)return;
+    $('#result').classList.remove('busy');$('#error').textContent='';
+    $('#count').textContent=fmt(r.count);
+    $('#bar>div').style.width=(r.universe?Math.max(.5,100*r.count/r.universe):0)+'%';
+    $('#meta').textContent=`${r.universe?(100*r.count/r.universe).toFixed(2):0}% of ${fmt(r.universe)} profiles · ${r.conditions} condition${r.conditions==1?'':'s'} · ${r.elapsed_ms} ms · ${r.cached?'cache hit':'computed'}`+(r.data_as_of?` · data as of ${r.data_as_of.replace('T',' ').replace('Z',' UTC')}`:'');
+    $('#warn').textContent=(r.warnings||[]).join(' · ');
+    renderFunnel(r.funnel);loadMembers(rule,my)
+  }catch(e){if(e.name==='AbortError')return;$('#result').classList.remove('busy');$('#error').textContent=e.message}}
+function renderFunnel(f){const d=$('#funnel');
+  if(!f||f.length<2){d.className='small mute';d.textContent='add two or more conditions';return}
+  d.className='small';const max=f[0].count||1;
+  d.replaceChildren(h('table',{},h('tr',{},h('th',{},'#'),h('th',{},'condition'),h('th',{},'audience'),h('th',{},'removed')),
+    ...f.map(x=>h('tr',{},h('td',{},x.step),h('td',{},x.condition),h('td',{},fmt(x.count)),h('td',{class:'mute'},x.removed==null?'':'−'+fmt(x.removed))))))}
+async function loadMembers(rule,my){
+  try{const m=await api('/api/members',{method:'POST',body:{rule,bu:S.bu||null,limit:12}});if(my!==S.seq)return;
+    const d=$('#ids');d.className='ids small';d.replaceChildren(...(m.customer_ids.length?m.customer_ids.map(id=>h('button',{onclick:()=>inspect(id)},id)):['no members']))}catch(e){}}
+async function inspect(id){
+  try{const p=await api('/api/profile/'+encodeURIComponent(id)+(S.bu?'?bu='+S.bu:''));
+    $('#dlgt').textContent='Profile '+id;
+    const rows=Object.entries(p.kpis).map(([k,v])=>h('tr',{},h('td',{},k),h('td',{},typeof v==='object'?JSON.stringify(v):String(v))));
+    $('#dlgb').replaceChildren(h('table',{},...rows));$('#dlg').showModal()}catch(e){alert(e.message)}}
+
+/* ---------- catalog ---------- */
+function renderCatalog(){
+  const q=$('#q').value.toLowerCase(),cats={};
+  for(const k of S.kpis){if(!k.loaded)continue;if(q&&!(k.name.includes(q)||(k.description||'').toLowerCase().includes(q)))continue;(cats[k.category]??=[]).push(k)}
+  $('#catalog').replaceChildren(...Object.entries(cats).map(([c,ks])=>{
+    const d=h('details',{open:!!q||['purchases','ml','location'].includes(c)},h('summary',{},`${c} (${ks.length})`));
+    for(const k of ks.slice(0,300))d.append(h('div',{class:'kpi',title:k.description,onclick:()=>addKpi(k)},h('span',{},k.name),h('small',{},k.type)));
+    if(ks.length>300)d.append(h('div',{class:'mute small'},`+${ks.length-300} more – refine search`));return d}));
+  let dl=$('#kpilist');if(!dl){dl=h('datalist',{id:'kpilist'});document.body.append(dl)}
+  dl.replaceChildren(...S.kpis.filter(k=>k.loaded).slice(0,3000).map(k=>h('option',{value:k.name},k.description||k.category)))}
+function addKpi(k){S.root.children.push({type:'leaf',kpi:k.name,operator:S.meta.operators[k.type][0],value:defVal(shapeOf(S.meta.operators[k.type][0])),not:false});render();schedule()}
+
+/* ---------- segments ---------- */
+async function loadSegs(){
+  const segs=await api('/api/segments'+(S.bu?'?bu='+S.bu:''));
+  $('#segs').replaceChildren(...(segs.length?segs.map(s=>h('div',{style:'padding:6px 0;border-bottom:1px solid var(--line)'},
+    h('b',{},s.name),' ',h('span',{class:'tag '+(s.status==='ok'?'ok':s.status==='stale'?'warn':'bad')},s.status),
+    h('div',{class:'mute'},`last count ${fmt(s.last_count)}`+(s.status_reason.length?' · '+s.status_reason.join(', '):'')),
+    h('div',{class:'row'},h('button',{class:'sm',onclick:()=>{const t=des(s.rule);S.root=t.type==='group'?t:{type:'group',op:'AND',not:false,children:[t]};render();schedule()}},'load'),
+      h('button',{class:'sm',onclick:async()=>{await api(`/api/segments/${s.id}/refresh`,{method:'POST'});loadSegs()}},'recount'),
+      h('button',{class:'sm danger',onclick:async()=>{await api('/api/segments/'+s.id,{method:'DELETE'});loadSegs()}},'delete')))):['none yet']);}
+$('#save').onclick=async()=>{const rule=ser(S.root);if(!rule){$('#savemsg').textContent='add at least one complete condition';return}
+  try{const s=await api('/api/segments',{method:'POST',body:{name:$('#segname').value||'untitled',rule,bu:S.bu}});$('#savemsg').textContent=`saved “${s.name}” (${fmt(s.last_count)} profiles)`;loadSegs()}catch(e){$('#savemsg').textContent=e.message}};
+
+/* ---------- data tab ---------- */
+async function loadKpis(){S.kpis=await api('/api/kpis'+(S.bu?'?bu='+S.bu:''));S.by=Object.fromEntries(S.kpis.map(k=>[k.name,k]));renderCatalog()}
+async function renderData(){
+  const all=await api('/api/kpis?include_retired=true');const q=$('#kq').value.toLowerCase();
+  const rows=all.filter(k=>!q||k.name.includes(q)||(k.source_model||'').toLowerCase().includes(q)).slice(0,500);
+  $('#kpicount').textContent=`${all.filter(k=>k.status==='active').length} active · ${all.filter(k=>k.status==='retired').length} retired`;
+  const models=[...new Set(all.filter(k=>k.status==='active').map(k=>k.source_model))];
+  $('#kpitable').replaceChildren(h('div',{class:'row'},'retire whole model: ',...models.map(m=>h('button',{class:'sm danger',onclick:async()=>{if(confirm('Retire ALL KPIs of model '+m+'?')){const r=await api('/api/models/'+encodeURIComponent(m)+'/retire',{method:'POST'});$('#admmsg').textContent=`retired ${r.retired.length} KPIs; ${r.segments_broken.length} saved segments now broken`;await loadKpis();renderData()}}},m||'(none)'))),
+    h('table',{},h('tr',{},...['name','type','category','BU','model','rows','loaded','ver','status',''].map(x=>h('th',{},x))),
+    ...rows.map(k=>h('tr',{},h('td',{},k.name),h('td',{},k.type),h('td',{},k.category),h('td',{},k.bu),h('td',{},k.source_model),h('td',{},fmt(k.row_count)),h('td',{},(k.loaded_at||'').replace('T',' ').replace('Z','')),h('td',{},k.version),
+      h('td',{},h('span',{class:'tag '+(k.status==='active'?'ok':'bad')},k.status)),
+      h('td',{},k.status==='active'?h('button',{class:'sm danger',onclick:async()=>{const r=await api(`/api/kpis/${k.name}/retire`,{method:'POST'});$('#admmsg').textContent=`${k.name} retired; ${r.segments_broken.length} saved segments broken`;await loadKpis();renderData()}},'retire'):'')))));
+  const f=await api('/api/admin/freshness');
+  $('#fresh').replaceChildren(...(f.length?f.map(k=>h('div',{},`${k.name}: ${k.reason}${k.age_hours?` (${k.age_hours}h > ${k.max_age_hours}h)`:''}`)):['all KPIs within their SLA']))}
+$('#kq').oninput=()=>renderData();
+$('#purge').onclick=async()=>{const r=await api('/api/admin/purge',{method:'POST'});$('#admmsg').textContent=`purged data of ${r.purged_kpis} retired KPIs`};
+$('#refreshall').onclick=async()=>{const r=await api('/api/segments/refresh-stale',{method:'POST'});$('#admmsg').textContent=`recounted ${r.refreshed.length} stale segments`;loadSegs()};
+$('#demo').onclick=async()=>{$('#demomsg').textContent='generating + ingesting…';$('#demo').disabled=true;
+  try{const r=await api('/api/admin/demo',{method:'POST',body:{profiles:+$('#demoN').value,ml_kpis:+$('#demoML').value}});
+    $('#demomsg').textContent='done: '+r.ingested.map(i=>`${i.kpis.length} KPIs`).join(' + ');await loadKpis();renderData();schedule()}
+  catch(e){$('#demomsg').textContent=e.message}$('#demo').disabled=false};
+$('#ingest').onclick=async()=>{const f=$('#file').files[0];if(!f||!$('#model').value){$('#ingmsg').textContent='choose a file and a model name';return}
+  $('#ingmsg').textContent='uploading + ingesting…';
+  try{const p=new URLSearchParams({filename:f.name,model:$('#model').value,mode:$('#mode').value,bu:$('#ibu').value||'ALL',category:$('#icat').value||'uncategorized'});
+    const r=await api('/api/ingest?'+p,{method:'POST',body:f});
+    $('#ingmsg').textContent=`${r.kpis.length} KPIs (${r.kpis.filter(k=>k.new).length} new), ${fmt(r.rows)} values, ${fmt(r.profiles_added)} new profiles, ${r.seconds}s`;
+    await loadKpis();renderData();loadSegs();schedule()}catch(e){$('#ingmsg').textContent=e.message;$('#ingmsg').className='small err'}};
+
+/* ---------- boot ---------- */
+for(const[t,p]of[['t-build','p-build'],['t-data','p-data']])$('#'+t).onclick=()=>{document.querySelectorAll('nav button').forEach(b=>b.classList.remove('on'));$('#'+t).classList.add('on');document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));$('#'+p).classList.add('on');if(p==='p-data')renderData()};
+$('#q').oninput=renderCatalog;$('#explain').onchange=schedule;
+$('#clear').onclick=()=>{S.root={type:'group',op:'AND',not:false,children:[]};render();schedule()};
+$('#bu').onchange=async()=>{S.bu=$('#bu').value;await loadKpis();loadSegs();schedule()};
+(async()=>{
+  try{S.meta=await api('/api/meta');$('#engine').textContent='engine: '+S.meta.engine;
+    for(const b of S.meta.business_units)$('#bu').append(h('option',{value:b},b));
+    await loadKpis();render();loadSegs();schedule()}catch(e){$('#error').textContent=e.message}})();
+</script>
+</body>
+</html>
