@@ -8,6 +8,8 @@ Python, open source, no licence cost. It runs on **DuckDB** or **ClickHouse** be
 - 500k profiles × 259 KPIs (111M values): 16-condition query in **88 ms cold / 2 ms cached** (DuckDB)
 - Retire 200 KPIs in **3 ms**, physically purge in 0.3 s
 
+![System architecture](docs/img/01-architecture.png)
+
 ---
 
 ## 1. Quick start
@@ -38,26 +40,7 @@ data, KPI table, retire a KPI or a whole model, purge, refresh stale segments, f
 
 ## 2. Architecture
 
-```
-                 ┌──────────── UI (vanilla JS) ────────────┐
-                 │  builder · live counts · segments · ingest│
-                 └───────────────────┬─────────────────────┘
-                                     │ REST (FastAPI, optional X-API-Key)
-┌────────────────────────────────────▼─────────────────────────────────────┐
-│ CDPService   count · members · profile · segments · ingest · retire · gc │
-│   Compiler: rule tree JSON ─► validated, normalised ─► dialect SQL       │
-│   Cache:    version-stamped keys, single-flight, funnel prefixes         │
-└───────────────┬───────────────────────────────────┬──────────────────────┘
-   CONTROL PLANE│                                   │DATA PLANE
-┌───────────────▼──────────────┐      ┌─────────────▼──────────────────────┐
-│ SQLite Registry (Postgres in │      │ Engine interface                   │
-│ production)                  │      │  ├─ DuckDBEngine  (in-process)     │
-│  kpis (type, bu, version,    │      │  └─ ClickHouseEngine (chdb/server) │
-│        active_gen, status…)  │      │ profiles(profile_idx, customer_id) │
-│  segments · count_cache      │      │ kpi_num/str/bool/ts/list/geo/json  │
-│  ingest_log · pending_gc     │      │   (kpi_id, gen, profile_idx, value)│
-└──────────────────────────────┘      └────────────────────────────────────┘
-```
+![System architecture: clients, API, CDPService (compiler, cache, ingestor, lifecycle), control plane and data plane](docs/img/01-architecture.png)
 
 **Control plane vs data plane.** *What a KPI is* (name, type, owner BU, freshness SLA, which generation is
 live) lives in a small transactional store. *The values* live in the analytical engine. Publishing is a
@@ -94,6 +77,38 @@ The idea was: filter dimension tables, then use the resolved IDs against a mappi
 - **Integer `profile_idx`** (dense surrogate for `customer_id`) keeps every KPI table narrow and makes
   set operations cheap.
 
+### 3.2a Database model
+
+![Data model: profiles, seven typed KPI tables, and the SQLite registry](docs/img/02-data-model.png)
+
+**Data plane** (DuckDB or ClickHouse). DuckDB DDL shown; ClickHouse uses the same columns plus `ver`,
+`ENGINE = ReplacingMergeTree(ver) ORDER BY (kpi_id, gen, profile_idx)`.
+
+```sql
+profiles(profile_idx BIGINT, customer_id VARCHAR, active BOOLEAN)
+kpi_num (kpi_id INT, gen INT, profile_idx BIGINT, v DOUBLE)
+kpi_str (kpi_id INT, gen INT, profile_idx BIGINT, v VARCHAR)
+kpi_bool(kpi_id INT, gen INT, profile_idx BIGINT, v BOOLEAN)
+kpi_ts  (kpi_id INT, gen INT, profile_idx BIGINT, v TIMESTAMP)
+kpi_list(kpi_id INT, gen INT, profile_idx BIGINT, v VARCHAR[])
+kpi_geo (kpi_id INT, gen INT, profile_idx BIGINT, lat DOUBLE, lon DOUBLE)
+kpi_json(kpi_id INT, gen INT, profile_idx BIGINT, v VARCHAR)
+```
+
+**Control plane** (SQLite now, Postgres in production):
+
+| Table | Purpose | Key columns |
+|---|---|---|
+| `kpis` | One row per KPI; decides what is live | `kpi_id` (autoincrement, never reused), `name` UNIQUE, `type`, `bu`, `source_model`, `status`, **`active_gen`**, `next_gen`, `version`, `max_age_hours`, `loaded_at`, `retired_at`, `purged` |
+| `segments` | Saved filter combinations | `rule_json`, `kpi_versions` (the versions the last count used), `last_count` |
+| `count_cache` | Cached audience counts | `key` = sha256(rule + KPI versions + time bucket), `count`, `universe`, `hits` |
+| `pending_gc` | Superseded generations waiting to be deleted | `(kpi_id, gen)`, `delete_after` |
+| `ingest_log` | Audit of loads | `source`, `model`, `mode`, `kpis`, `rows`, `seconds` |
+
+**How they relate.** `profile_idx` joins every KPI row to its customer; `kpi_id` + `gen` select the live values
+(`gen` = `kpis.active_gen`); a segment stores the KPI versions it was counted with, so a later refresh marks it
+stale; the cache key includes the same versions, so a refresh makes old entries unreachable.
+
 ### 3.3 Query shape
 Each leaf becomes a semi-join; groups combine them:
 
@@ -119,6 +134,8 @@ the file is loaded and counted, **one SQLite transaction flips `active_gen` for 
 
 ## 4. Ingestion
 
+![Ingestion pipeline: validate, register, load into a new generation, check, publish in one transaction, garbage-collect](docs/img/03-ingestion.png)
+
 Source: a **wide** Parquet / CSV / JSONL file (local `<data_dir>/inbox`, `s3://`, `https://`, or upload) with a
 `customer_id` column plus one column per KPI. Staying wide at the *file* level is fine; the platform
 converts to long.
@@ -141,6 +158,8 @@ Measured: 500k profiles, 259 KPIs, 111M values loaded in **~24 s (DuckDB)** and 
 ---
 
 ## 5. Querying
+
+![Query path: rule, normalise, snapshot KPIs, cache key, then cache hit or compile and execute](docs/img/04-retrieval.png)
 
 A rule is JSON: groups `AND` / `OR` / `NOT` containing leaves `{kpi, operator, value}`, nestable to depth 8,
 up to 100 leaves. The rule is validated, **normalised** (flatten, dedupe, sort, prune empty groups) so equal
