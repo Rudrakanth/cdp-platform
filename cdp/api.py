@@ -28,6 +28,14 @@ class CountReq(BaseModel):
     now: Optional[datetime] = None          # tests / what-if; defaults to server time
 
 
+class BreakdownReq(BaseModel):
+    rule: dict = Field(default_factory=dict)
+    kpi: str
+    bu: Optional[str] = None
+    limit: int = 8
+    now: Optional[datetime] = None
+
+
 class MembersReq(BaseModel):
     rule: dict = Field(default_factory=dict)
     bu: Optional[str] = None
@@ -112,6 +120,11 @@ def create_app(service: Optional[CDPService] = None, settings: Optional[Settings
     @app.post("/api/count")
     def count(r: CountReq):
         return svc.count(r.rule, bu=r.bu, explain=r.explain, use_cache=r.use_cache, now=r.now)
+
+    @app.post("/api/breakdown")
+    def breakdown(r: BreakdownReq):
+        """Total vs audience split of one KPI (powers the charts)."""
+        return svc.breakdown(r.rule, r.kpi, bu=r.bu, limit=r.limit, now=r.now)
 
     @app.post("/api/members")
     def members(r: MembersReq):

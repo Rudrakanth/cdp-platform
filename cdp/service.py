@@ -40,6 +40,7 @@ class CDPService:
         self.ingestor = Ingestor(self.engine, self.reg, self.s.gc_grace_s)
         self._sugg: OrderedDict = OrderedDict()                 # value-suggestion cache (version-stamped keys)
         self._sugg_lock = threading.Lock()
+        self._bd: OrderedDict = OrderedDict()                   # breakdown cache (version-stamped keys)
         self._write_lock = threading.Lock()                     # one ingest/purge at a time
         self._flight: dict[str, threading.Lock] = {}
         self._flight_guard = threading.Lock()
@@ -252,6 +253,99 @@ class CDPService:
         return {"purged_kpis": len(todo)}
 
     SUGGEST_MAX = 50
+    BD_BINS = 8
+
+    def _bd_cached(self, key, fn):
+        with self._sugg_lock:
+            if key in self._bd:
+                self._bd.move_to_end(key)
+                return self._bd[key]
+        val = fn()
+        with self._sugg_lock:
+            self._bd[key] = val
+            while len(self._bd) > 500:
+                self._bd.popitem(last=False)
+        return val
+
+    def breakdown(self, rule: dict, kpi: str, *, bu: Optional[str] = None, limit: int = 8,
+                  now: Optional[datetime] = None) -> dict:
+        """Split of one dimension KPI: for every value (or numeric bin), how many profiles are in the audience
+        and how many are in the whole base. Powers the 'total vs filtered' charts. text / yes-no / list / number KPIs."""
+        from .types import TABLE_FOR
+        if not (1 <= limit <= 20):
+            raise ValidationError("limit must be 1..20")
+        t0 = time.time()
+        now = naive_utc(now) if now else _utcnow()
+        k = self.reg.get_kpis([kpi]).get(kpi)
+        if not k:
+            raise NotFound(f"unknown or retired KPI '{kpi}'")
+        if bu and k["bu"] not in {bu.upper(), "ALL"}:
+            raise ValidationError(f"KPI '{kpi}' belongs to {k['bu']} and is not visible here")
+        if k["type"] not in ("string", "bool", "list", "number"):
+            raise ValidationError("breakdown supports text, yes/no, list and number KPIs")
+        if not k["active_gen"]:
+            raise ValidationError(f"KPI '{kpi}' has no data loaded yet")
+        c = self._compile(rule, bu, now)
+        audience, _ = self._cached_count(c, now, bu, True)
+        universe = self._universe()
+        d, kt = self.engine.dialect, k["type"]
+        t = d.tbl(TABLE_FOR[kt])
+        base = f"kpi_id = {int(k['kpi_id'])} AND gen = {int(k['active_gen'])}"
+        ver = (k["kpi_id"], k["version"], k["active_gen"])
+        aud = f"profile_idx IN (SELECT p.profile_idx FROM profiles AS p WHERE p.active AND ({c.where}))"
+
+        lo = w = None
+        bins = self.BD_BINS
+        if kt == "number":
+            mn, mx = self._bd_cached(("rng",) + ver, lambda: self.engine.query(
+                f"SELECT min(v), max(v) FROM {t} WHERE {base}")[0])
+            if mn is None:
+                mn = mx = 0
+            lo, mn, mx = float(mn), float(mn), float(mx)
+            bins = 1 if mx == mn else bins
+            w = (mx - mn) / bins if mx > mn else 1.0
+
+        def rows(extra: str):
+            if kt == "number":
+                expr = f"least({d.to_int(f'floor((v - {d.num(lo)}) / {d.num(w)})')}, {bins - 1})"
+                sql = f"SELECT b, count(*) FROM (SELECT {expr} AS b FROM {t} WHERE {base}{extra}) AS s GROUP BY b"
+            elif kt == "list":
+                sql = (f"SELECT e, count(*) FROM (SELECT {d.unnest('v')} AS e FROM {t} WHERE {base}{extra}) AS s "
+                       f"WHERE e IS NOT NULL AND e <> '' GROUP BY e")
+            else:
+                sql = f"SELECT v, count(*) FROM {t} WHERE {base}{extra} GROUP BY v"
+            out = {}
+            for v, n in self._run(sql, c):
+                if kt == "bool":
+                    v = "yes" if v in (True, 1, "true", "True") else "no"
+                elif kt == "number":
+                    v = int(v)
+                else:
+                    v = str(v)
+                out[v] = out.get(v, 0) + int(n)
+            return out
+
+        tot = self._bd_cached(("t",) + ver, lambda: rows(""))
+        aud_rows = self._bd_cached(("a", self._key(c, now, bu)) + ver, lambda: rows(f" AND {aud}"))
+
+        def lab(i):
+            a, b = lo + i * w, lo + (i + 1) * w
+            return f"{a:.4g}–{b:.4g}"
+
+        if kt == "number":
+            groups = [{"value": lab(i), "audience": aud_rows.get(i, 0), "total": tot.get(i, 0)} for i in range(bins)]
+            other = None
+        else:
+            keys = sorted(set(tot) | set(aud_rows), key=lambda x: (-aud_rows.get(x, 0), -tot.get(x, 0), x))
+            groups = [{"value": x, "audience": aud_rows.get(x, 0), "total": tot.get(x, 0)} for x in keys[:limit]]
+            rest = keys[limit:]
+            other = ({"n": len(rest), "audience": sum(aud_rows.get(x, 0) for x in rest),
+                      "total": sum(tot.get(x, 0) for x in rest)} if rest else None)
+        missing = None
+        if kt != "list":
+            missing = {"audience": max(0, audience - sum(aud_rows.values())), "total": max(0, universe - sum(tot.values()))}
+        return {"kpi": kpi, "type": kt, "audience": audience, "universe": universe, "groups": groups,
+                "other": other, "missing": missing, "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
     def suggest_values(self, kpi: str, q: str = "", *, limit: int = 20, bu: Optional[str] = None) -> dict:
         """Type-ahead for string / list KPIs: distinct values matching `q` (case-insensitive, prefix matches
