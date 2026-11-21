@@ -244,7 +244,7 @@ async function loadSegs(){
     h('div',{class:'mute'},`last count ${fmt(s.last_count)}`+(s.status_reason.length?' · '+s.status_reason.join(', '):'')),
     h('div',{class:'row'},h('button',{class:'sm',onclick:()=>{const t=des(s.rule);S.root=t.type==='group'?t:{type:'group',op:'AND',not:false,children:[t]};render();schedule()}},'load'),
       h('button',{class:'sm',onclick:async()=>{await api(`/api/segments/${s.id}/refresh`,{method:'POST'});loadSegs()}},'recount'),
-      h('button',{class:'sm danger',onclick:async()=>{await api('/api/segments/'+s.id,{method:'DELETE'});loadSegs()}},'delete')))):['none yet']);}
+      h('button',{class:'sm danger',onclick:async()=>{await api('/api/segments/'+s.id,{method:'DELETE'});loadSegs()}},'delete')))):['none yet']));}
 $('#save').onclick=async()=>{const rule=ser(S.root);if(!rule){$('#savemsg').textContent='add at least one complete condition';return}
   try{const s=await api('/api/segments',{method:'POST',body:{name:$('#segname').value||'untitled',rule,bu:S.bu}});$('#savemsg').textContent=`saved “${s.name}” (${fmt(s.last_count)} profiles)`;loadSegs()}catch(e){$('#savemsg').textContent=e.message}};
 
